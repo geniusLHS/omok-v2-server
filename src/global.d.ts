@@ -22,7 +22,7 @@ interface OmokGame {
     p1: boolean;
     p2: boolean;
   };
-  previousWinner: "none" | "p1" | "p2";
+  isP1Black: boolean;
   guests: string[];
   allUsers: string[];
 }
@@ -36,8 +36,16 @@ type GameError = "room_not_exist" | "opponent_disconnected";
 interface ServerToClientEvents {
   newRoomId: (roomId: string) => void;
   error: (gameError: GameError) => void;
-  gameStart: (option: Option) => void;
+  gameStart: (option: Option, isP1Black: boolean) => void;
   guestsNumberChange: (guestsNumber: number) => void;
+  newStone: (stone: Stone) => void;
+  gameEnd: (
+    isP1Win: boolean,
+    score: {
+      p1: number;
+      p2: number;
+    }
+  ) => void;
 }
 
 interface ClientToServerEvents {

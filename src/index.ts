@@ -1,8 +1,8 @@
 import express from "express";
-import crypto from "crypto";
 import http from "http";
 import cors from "cors";
 import { Server } from "socket.io";
+import { getRoomId, isOmokGameEnd } from "./utils";
 
 const app = express();
 
@@ -25,45 +25,6 @@ let omokGames: OmokGame[] = [];
 // let gomokuPreviousWinner = {}; // Example: { foobar: 'Alice'}
 // let userNumber = {}; // Example : { foobar: 1}}
 
-const getRoomId = () => {
-  let now = new Date();
-  let roomId = crypto.createHash("sha256").update(now.toString()).digest("hex").substring(0, 8);
-
-  return roomId;
-};
-
-function checkOmokCompleted(stone, room) {
-  takes = gomokuInformation[room];
-  //(0, 1), (1, 1), (1, 0), (1, -1)
-  const offset = [
-    { x: 1, y: 0 }, //가로
-    { x: 1, y: 1 }, //대각선1
-    { x: 0, y: 1 }, //세로
-    { x: -1, y: 1 }, //대각선2
-  ];
-
-  return offset.some((dir) => {
-    let streak = 1;
-    const type = takes.length % 2;
-
-    //정방향
-    for (let x = stone.x + dir.x, y = stone.y + dir.y; x > 0 && x < 19 && y > 0 && y < 19; x += dir.x, y += dir.y) {
-      if (takes.some((t, index) => t.x == x && t.y == y && index % 2 == type)) streak++;
-      else break;
-    }
-
-    //반대방향
-    for (let x = stone.x - dir.x, y = stone.y - dir.y; x > 0 && x < 19 && y > 0 && y < 19; x -= dir.x, y -= dir.y) {
-      if (takes.some((t, index) => t.x == x && t.y == y && index % 2 == type)) streak++;
-      else break;
-    }
-
-    if (streak === 5) {
-      return true;
-    }
-  });
-}
-
 io.on("connection", (socket) => {
   socket.on("newRoom", (option) => {
     let roomId = getRoomId();
@@ -84,7 +45,7 @@ io.on("connection", (socket) => {
         p1: false,
         p2: false,
       },
-      previousWinner: "none",
+      isP1Black: false,
       guests: [],
       allUsers: [socket.id],
     };
@@ -104,7 +65,7 @@ io.on("connection", (socket) => {
 
       socket.join(roomId);
 
-      socket.emit("gameStart", omokGame.option);
+      socket.emit("gameStart", omokGame.option, false);
     } else {
       omokGame.guests.push(socket.id);
 
@@ -115,39 +76,40 @@ io.on("connection", (socket) => {
   });
 
   socket.on("newStone", (stone) => {
-    const { stone, username, isBlack, room } = data;
-    const room = 
-
-    let isBlackTurn = gomokuInformation[room].length % 2 == 0;
-
-    if ((isBlackTurn && !isBlack) || (!isBlackTurn && isBlack)) return;
-
-    if (gomokuInformation[room].find((c) => c.x === stone.x && c.y === stone.y) !== undefined) {
+    const omokGame = omokGames.find((omokGame) => omokGame.allUsers.includes(socket.id));
+    if (!omokGame) {
+      socket.emit("error", "room_not_exist");
       return;
     }
 
-    data = { stone, username };
-    io.to(room).emit("new_stone", data);
+    const roomId = omokGame.roomId;
+    const isP1 = omokGame.p1 === socket.id;
+    const isBlack = isP1 === omokGame.isP1Black;
 
-    if (checkOmokCompleted(stone, room)) {
-      omokCompleteCount += 1;
-      let __currenttime__ = new Date();
-      console.log(`${__currenttime__.toLocaleString()} | #${omokCompleteCount} Omok completed! in room ${room}`);
+    const isBlackTurn = omokGame.stones.length % 2 === 0;
 
-      let winner = isBlackTurn ? "black" : "white";
+    if (isBlack !== isBlackTurn) return;
 
-      io.to(room).emit("game_end", { win: winner });
-
-      if (username === "Alice") {
-        (gomokuPreviousWinner[room] = "Alice"), (gomokuScore[room][0] += 1);
-      } else {
-        (gomokuPreviousWinner[room] = "Bob"), (gomokuScore[room][1] += 1);
-      }
-
-      io.to(room).emit("alert_score", { score: gomokuScore[room] });
+    if (omokGame.stones.find((s) => s.x === stone.x && s.y === stone.y)) {
+      return;
     }
 
-    gomokuInformation[room].push(stone);
+    omokGame.stones.push(stone);
+    io.to(roomId).emit("newStone", stone);
+
+    if (isOmokGameEnd(omokGame.stones, stone)) {
+      const isP1Win = isP1;
+
+      if (isP1Win) {
+        omokGame.isP1Black = false;
+        omokGame.score = { ...omokGame.score, p1: omokGame.score.p1 + 1 };
+      } else {
+        omokGame.isP1Black = true;
+        omokGame.score = { ...omokGame.score, p2: omokGame.score.p2 + 1 };
+      }
+
+      io.in(roomId).emit("gameEnd", isP1Win, omokGame.score);
+    }
   });
 
   socket.on("request_rematch", (data) => {
