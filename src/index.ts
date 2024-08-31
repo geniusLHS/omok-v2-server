@@ -112,54 +112,70 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("request_rematch", (data) => {
-    let username = data.username;
-    let room = data.room;
+  socket.on("requestRematch", () => {
+    const omokGame = omokGames.find((omokGame) => omokGame.allUsers.includes(socket.id));
+    if (!omokGame) {
+      socket.emit("error", "room_not_exist");
+      return;
+    }
 
-    gomokuRematch[room][username] = true;
+    const roomId = omokGame.roomId;
+    const isP1 = omokGame.p1 === socket.id;
 
-    io.to(room).emit("receive_request_rematch", { username: username });
+    if (isP1) omokGame.rematch.p1 = true;
+    else omokGame.rematch.p2 = true;
 
-    if (gomokuRematch[room].Alice == true && gomokuRematch[room].Bob == true) {
-      io.to(room).emit("rematch", { white: gomokuPreviousWinner[room] });
+    io.in(roomId).emit("requestRematch", omokGame.rematch);
 
-      gomokuInformation[room] = [];
-      // gomokuScore[room] = [0, 0];
-      gomokuRematch[room] = { Alice: false, Bob: false };
+    const isRematch = omokGame.rematch.p1 && omokGame.rematch.p2;
+
+    if (isRematch) {
+      io.in(roomId).emit("gameStart", omokGame.option, omokGame.isP1Black);
+
+      omokGame.stones = [];
+      omokGame.rematch = { p1: false, p2: false };
     }
   });
 
-  socket.on("countdown_over", (data) => {
-    let username = data.username;
-    let room = data.room;
-    let isBlackTurn = data.isBlack;
-
-    omokCompleteCount += 1;
-    let __currenttime__ = new Date();
-    console.log(`${__currenttime__.toLocaleString()} | #${omokCompleteCount} Omok completed! in room ${room}`);
-
-    let winner = !isBlackTurn ? "black" : "white"; // 오목을 완성해서 이기는 경우와 반대
-
-    io.to(room).emit("game_end", { win: winner });
-
-    if (!(username === "Alice")) {
-      // 오목을 완성해서 이기는 경우와 반대
-      (gomokuPreviousWinner[room] = "Alice"), (gomokuScore[room][0] += 1);
-    } else {
-      (gomokuPreviousWinner[room] = "Bob"), (gomokuScore[room][1] += 1);
+  socket.on("timeOut", () => {
+    const omokGame = omokGames.find((omokGame) => omokGame.allUsers.includes(socket.id));
+    if (!omokGame) {
+      socket.emit("error", "room_not_exist");
+      return;
     }
 
-    io.to(room).emit("alert_score", { score: gomokuScore[room] });
+    const roomId = omokGame.roomId;
+    const isP1 = omokGame.p1 === socket.id;
+
+    const isP1Win = !isP1;
+
+    if (isP1Win) {
+      omokGame.isP1Black = false;
+      omokGame.score = { ...omokGame.score, p1: omokGame.score.p1 + 1 };
+    } else {
+      omokGame.isP1Black = true;
+      omokGame.score = { ...omokGame.score, p2: omokGame.score.p2 + 1 };
+    }
+
+    io.in(roomId).emit("gameEnd", isP1Win, omokGame.score);
   });
 
   socket.on("disconnect", () => {
-    const user = allUsers.find((user) => user.id == socket.id);
-    if (user?.room) {
-      gomokuRoom = user?.room;
-      socket.to(gomokuRoom).emit("room_expired_opponent_disconnected");
+    const omokGame = omokGames.find((omokGame) => omokGame.allUsers.includes(socket.id));
+    if (!omokGame) {
+      socket.emit("error", "room_not_exist");
+      return;
+    }
 
-      if (userNumber[gomokuRoom]) delete userNumber[gomokuRoom];
-      allUsers = allUsers.filter((user) => user.id != socket.id);
+    const roomId = omokGame.roomId;
+    const isP1 = omokGame.p1 === socket.id;
+    const isP2 = omokGame.p1 === socket.id;
+    const isGuest = !isP1 && !isP2;
+
+    if (isP1 || isP2) {
+      socket.to(roomId).emit("error", "opponent_disconnected");
+    } else if (isGuest) {
+      omokGame.guests = omokGame.guests.filter((guest) => guest !== socket.id);
     }
   });
 });

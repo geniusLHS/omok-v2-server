@@ -8,7 +8,6 @@ export const getRoomId = () => {
 };
 
 export const isOmokGameEnd = (stones: Stone[], lastStone: Stone): boolean => {
-  takes = gomokuInformation[room];
   //(0, 1), (1, 1), (1, 0), (1, -1)
   const offset = [
     { x: 1, y: 0 }, //가로
@@ -19,17 +18,17 @@ export const isOmokGameEnd = (stones: Stone[], lastStone: Stone): boolean => {
 
   return offset.some((dir) => {
     let streak = 1;
-    const type = takes.length % 2;
+    const type = stones.length % 2;
 
     //정방향
-    for (let x = stone.x + dir.x, y = stone.y + dir.y; x > 0 && x < 19 && y > 0 && y < 19; x += dir.x, y += dir.y) {
-      if (takes.some((t, index) => t.x == x && t.y == y && index % 2 == type)) streak++;
+    for (let x = lastStone.x + dir.x, y = lastStone.y + dir.y; x > 0 && x < 19 && y > 0 && y < 19; x += dir.x, y += dir.y) {
+      if (stones.some((t, index) => t.x == x && t.y == y && index % 2 == type)) streak++;
       else break;
     }
 
     //반대방향
-    for (let x = stone.x - dir.x, y = stone.y - dir.y; x > 0 && x < 19 && y > 0 && y < 19; x -= dir.x, y -= dir.y) {
-      if (takes.some((t, index) => t.x == x && t.y == y && index % 2 == type)) streak++;
+    for (let x = lastStone.x - dir.x, y = lastStone.y - dir.y; x > 0 && x < 19 && y > 0 && y < 19; x -= dir.x, y -= dir.y) {
+      if (stones.some((t, index) => t.x == x && t.y == y && index % 2 == type)) streak++;
       else break;
     }
 

@@ -46,12 +46,15 @@ interface ServerToClientEvents {
       p2: number;
     }
   ) => void;
+  requestRematch: (rematch: { p1: boolean; p2: boolean }) => void;
 }
 
 interface ClientToServerEvents {
   newRoom: (option: Option) => void;
   joinRoom: (roomId: string) => void;
   newStone: (stone: Stone) => void;
+  requestRematch: () => void;
+  timeOut: () => void;
 }
 
 interface InterServerEvents {
