@@ -1,46 +1,36 @@
-const express = require("express");
-const crypto = require("crypto");
+import express from "express";
+import crypto from "crypto";
+import http from "http";
+import cors from "cors";
+import { Server } from "socket.io";
+
 const app = express();
-const http = require("http");
-const cors = require("cors");
-const { Server } = require("socket.io");
 
 app.use(cors());
 
 const server = http.createServer(app);
 
-const io = new Server(server, {
+const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(server, {
   cors: {
     origin: ["http://localhost:3000", "https://omok.geniuslhs.com"],
     methods: ["GET", "POST"],
   },
 });
 
-const SUPER_BOT = "OMOK Manager";
+let omokGames: OmokGame[] = [];
 
-let gomokuRoom = "";
-let allUsers = [];
+// let gomokuInformation = {}; // Example : { foobar: { 오목판정보 } }
+// let gomokuScore = {}; // Example: { foobar: [1, 2]}  -> 1대2 라는 뜻
+// let gomokuRematch = {}; // Example: { foobar: {Alice: false, Bob: true}]}  -> Bob만 찬성
+// let gomokuPreviousWinner = {}; // Example: { foobar: 'Alice'}
+// let userNumber = {}; // Example : { foobar: 1}}
 
-let gomokuInformation = {}; // Example : { foobar: { 오목판정보 } }
-let gomokuScore = {}; // Example: { foobar: [1, 2]}  -> 1대2 라는 뜻
-let gomokuRematch = {}; // Example: { foobar: {Alice: false, Bob: true}]}  -> Bob만 찬성
-let gomokuPreviousWinner = {}; // Example: { foobar: 'Alice'}
-let userNumber = {}; // Example : { foobar: 1}}
+const getRoomId = () => {
+  let now = new Date();
+  let roomId = crypto.createHash("sha256").update(now.toString()).digest("hex").substring(0, 8);
 
-let userCount = 0;
-let matchCount = 0;
-let omokCompleteCount = 0;
-
-function getKoreaTime() {
-  // https://ryusm.tistory.com/141
-
-  const now = new Date();
-  const utcNow = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
-  const koreaTimeDiff = 9 * 60 * 60 * 1000;
-  const koreaNow = new Date(utcNow + koreaTimeDiff);
-
-  return koreaNow;
-}
+  return roomId;
+};
 
 function checkOmokCompleted(stone, room) {
   takes = gomokuInformation[room];
@@ -75,72 +65,58 @@ function checkOmokCompleted(stone, room) {
 }
 
 io.on("connection", (socket) => {
-  userCount += 1;
+  socket.on("newRoom", (option) => {
+    let roomId = getRoomId();
 
-  let __createdtime__ = getKoreaTime();
+    socket.join(roomId);
 
-  console.log(`${__createdtime__.toLocaleString()} | #${userCount} User connected ${socket.id}`);
+    let omokGame: OmokGame = {
+      roomId,
+      option,
+      stones: [],
+      p1: socket.id,
+      p2: null,
+      score: {
+        p1: 0,
+        p2: 0,
+      },
+      rematch: {
+        p1: false,
+        p2: false,
+      },
+      previousWinner: "none",
+      guests: [],
+      allUsers: [socket.id],
+    };
 
-  socket.on("new_room", (data) => {
-    let __createdtime__ = new Date();
-    let randomRoomName = crypto
-      .createHash("sha256")
-      .update(String(__createdtime__) + "gomoku of vs")
-      .digest("hex")
-      .substring(0, 8);
+    omokGames.push(omokGame);
 
-    let username = "Alice";
-    let room = randomRoomName;
-
-    socket.join(room);
-    gomokuInformation[room] = []; // 이중 리스트가 담길 예정
-    gomokuScore[room] = [0, 0];
-    gomokuRematch[room] = { Alice: false, Bob: false };
-    gomokuPreviousWinner[room] = "";
-    userNumber[room] = 1;
-
-    io.to(room).emit("receive_roomName", room);
-
-    gomokuRoom = room;
-    allUsers.push({ id: socket.id, room });
+    io.to(roomId).emit("newRoomId", roomId);
   });
 
-  socket.on("join_room", (data) => {
-    const { username, room } = data;
+  socket.on("joinRoom", (roomId) => {
+    const omokGame = omokGames.find((omokGame) => omokGame.roomId === roomId);
 
-    if (userNumber[room] >= 2) {
-      // 이미 2명 이상이 방에 있었으면 시청할 수 없음.
-      socket.emit("already_two_person"); // 새로 들어온 사람
-      //   io.to(room).emit('room_expired_third_person'); // 원래 있던 사람들에게는 영향 안미침
+    if (!omokGame) {
+      socket.emit("error", "room_not_exist");
+    } else if (!omokGame.p2) {
+      omokGame.p2 = socket.id;
 
-      //   if (publicKeys[room]) delete publicKeys[room];
-      //   if (userNumber[room]) delete userNumber[room];
-    } else if (!gomokuInformation[room] || !userNumber[room]) {
-      // 방이 없을 경우
-      socket.emit("room_not_exist");
+      socket.join(roomId);
 
-      if (gomokuInformation[room]) delete gomokuInformation[room];
-      if (userNumber[room]) delete userNumber[room];
+      socket.emit("gameStart", omokGame.option);
     } else {
-      matchCount += 1;
-      let __createdtime__ = getKoreaTime();
-      console.log(`${__createdtime__.toLocaleString()} | #${matchCount} Match occured`);
+      omokGame.guests.push(socket.id);
 
-      userNumber[room] += 1;
+      socket.join(roomId);
 
-      socket.join(room);
-
-      gomokuRoom = room;
-      allUsers.push({ id: socket.id, room });
-
-      allUsers.filter((user) => user.room == room);
-
-      io.to(room).emit("game_start");
+      io.in(roomId).emit("guestsNumberChange", omokGame.guests.length);
     }
   });
 
-  socket.on("new_stone", (data) => {
+  socket.on("newStone", (stone) => {
     const { stone, username, isBlack, room } = data;
+    const room = 
 
     let isBlackTurn = gomokuInformation[room].length % 2 == 0;
 
@@ -215,9 +191,6 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    let __createdtime__ = new Date();
-    console.log(`${__createdtime__.toLocaleString()} | User disconnected ${socket.id}`);
-
     const user = allUsers.find((user) => user.id == socket.id);
     if (user?.room) {
       gomokuRoom = user?.room;
